@@ -1,0 +1,7 @@
+python-dotenv
+langchain-core
+langchain-openai
+chromadb
+langchain-chroma
+langchain-community
+langchain-experimental

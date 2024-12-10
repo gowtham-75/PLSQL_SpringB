@@ -1,0 +1,28 @@
+CREATE OR REPLACE PACKAGE PKG_PAYMENTS AS
+  PROCEDURE CREATE_PAYMENT_FOR_ORDER(p_order_id NUMBER, p_payment_method VARCHAR2, p_amount NUMBER);
+  PROCEDURE UPDATE_PAYMENT_STATUS(p_payment_id NUMBER, p_new_status VARCHAR2);
+END PKG_PAYMENTS;
+/
+CREATE OR REPLACE PACKAGE BODY PKG_PAYMENTS AS
+  PROCEDURE CREATE_PAYMENT_FOR_ORDER(p_order_id NUMBER, p_payment_method VARCHAR2, p_amount NUMBER) IS
+    l_payment_id NUMBER;
+  BEGIN
+    l_payment_id := SEQ_PAYMENT_ID.NEXTVAL;
+    INSERT INTO PAYMENTS (PAYMENT_ID, ORDER_ID, PAYMENT_DATE, PAYMENT_AMOUNT, PAYMENT_METHOD, PAYMENT_STATUS, CREATED_DATE, LAST_UPDATED_DATE)
+    VALUES (l_payment_id, p_order_id, SYSDATE, p_amount, p_payment_method, 'PENDING', SYSDATE, SYSDATE);
+
+    PKG_UTILS.LOG_MESSAGE('Created Payment ' || l_payment_id || ' for Order ' || p_order_id || ' Amount: ' || PKG_UTILS.FORMAT_CURRENCY(p_amount));
+  END CREATE_PAYMENT_FOR_ORDER;
+
+  PROCEDURE UPDATE_PAYMENT_STATUS(p_payment_id NUMBER, p_new_status VARCHAR2) IS
+  BEGIN
+    UPDATE PAYMENTS SET PAYMENT_STATUS = p_new_status, LAST_UPDATED_DATE = SYSDATE WHERE PAYMENT_ID = p_payment_id;
+
+    IF SQL%ROWCOUNT = 0 THEN
+      PKG_UTILS.RAISE_ERROR('Payment ' || p_payment_id || ' not found');
+    END IF;
+
+    PKG_UTILS.LOG_MESSAGE('Updated Payment ' || p_payment_id || ' status to ' || p_new_status);
+  END UPDATE_PAYMENT_STATUS;
+END PKG_PAYMENTS;
+/

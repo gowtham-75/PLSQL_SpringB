@@ -1,0 +1,245 @@
+(.venv) chamindawijayasundara@Chamindas-MacBook-Pro legacy_modernisation % /Users/chamindawijayasun
+dara/Documents/legacy_modernisation/.venv/bin/python /Users/chamindawijayasundara/Documents/legacy_
+modernisation/app.py
+Explanation: The order processing system in the provided PL/SQL code is implemented through a package named `PKG_ORDER_PROCESSING`. This package contains several procedures that manage the lifecycle of an order from creation to completion or cancellation. Here's a detailed explanation of how order processing works in this system:
+
+1. **Order Creation (`CREATE_ORDER`)**:
+   - This procedure initializes a new order for a given customer. It validates the customer ID and generates a new order ID using a sequence (`SEQ_ORDER_ID`).
+   - A new entry is inserted into the `ORDERS` table with the status set to 'NEW', and the order total initialized to zero.
+   - A log message is recorded to indicate the creation of the order.
+
+2. **Adding Order Items (`ADD_ORDER_ITEM`)**:
+   - This procedure allows adding products to an existing order. It first validates the quantity and product ID.
+   - It checks that the order is in the 'NEW' status, as items can only be added to new orders.
+   - The unit price of the product is retrieved, and the total price for the quantity is calculated.
+   - An entry is added to the `ORDER_ITEMS` table, and the order total in the `ORDERS` table is updated.
+   - A log message is recorded to indicate the addition of items to the order.
+
+3. **Order Validation (`VALIDATE_ORDER`)**:
+   - This procedure validates the order before processing. It checks that the order is in the 'NEW' status.
+   - It validates the customer's credit limit against the order total and checks inventory availability for each product in the order.
+   - A log message is recorded to indicate successful validation.
+
+4. **Order Processing (`PROCESS_ORDER`)**:
+   - This procedure transitions the order to the 'PROCESSING' status. It validates the status change and reserves inventory for the order items.
+   - An invoice is created for the order, and invoice lines are added for each product.
+   - The order status is updated to 'PROCESSING', and the customer's balance is updated with the order total.
+   - A log message is recorded to indicate the order has moved to processing.
+
+5. **Order Shipping (`SHIP_ORDER`)**:
+   - This procedure transitions the order to the 'SHIPPED' status. It validates the status change and decrements inventory as the order is shipped.
+   - A shipment record is created, and the order status is updated to 'SHIPPED'.
+   - A log message is recorded to indicate the order has been shipped.
+
+6. **Order Completion (`COMPLETE_ORDER`)**:
+   - This procedure marks the order as 'COMPLETED'. It validates the status change and updates the order status.
+   - A log message is recorded to indicate the order is completed.
+
+7. **Order Cancellation (`CANCEL_ORDER`)**:
+   - This procedure cancels an order. It validates the status change and releases any reserved inventory if the order was in 'NEW' or 'PROCESSING' status.
+   - If an invoice exists, it is reversed, and the customer's balance is adjusted.
+   - The order status is updated to 'CANCELED', and a log message is recorded.
+
+Throughout the process, various validations and utility functions are used to ensure data integrity and proper logging. The system also handles exceptions, such as when an order does not exist, by raising appropriate errors. This comprehensive approach ensures that orders are processed efficiently and accurately within the system.
+
+Spring Boot Implementation: To convert the PL/SQL package `PKG_ORDER_PROCESSING` into a Spring Boot application, we need to create several components that correspond to the procedures and database interactions defined in the PL/SQL code. Here's a step-by-step guide to achieve this:
+
+### 1. Entity Classes
+
+Entity classes represent the database tables. Based on the PL/SQL code, we need entities for `Orders`, `OrderItems`, `Products`, `Customers`, `Invoices`, and `Shipments`.
+
+```java
+@Entity
+@Table(name = "ORDERS")
+public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "order_seq")
+    @SequenceGenerator(name = "order_seq", sequenceName = "SEQ_ORDER_ID", allocationSize = 1)
+    private Long orderId;
+
+    private Long customerId;
+    private Date orderDate;
+    private String orderStatus;
+    private Double orderTotal;
+    private Date createdDate;
+    private Date lastUpdatedDate;
+    private Long invoiceId;
+    private Long shipmentId;
+
+    // Getters and setters
+}
+
+@Entity
+@Table(name = "ORDER_ITEMS")
+public class OrderItem {
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "order_item_seq")
+    @SequenceGenerator(name = "order_item_seq", sequenceName = "SEQ_ORDER_ITEM_ID", allocationSize = 1)
+    private Long orderItemId;
+
+    private Long orderId;
+    private Long productId;
+    private Integer quantity;
+    private Double unitPrice;
+    private Double totalPrice;
+    private Date createdDate;
+    private Date lastUpdatedDate;
+
+    // Getters and setters
+}
+
+// Similar entities for Products, Customers, Invoices, and Shipments
+```
+
+### 2. Repository Interfaces
+
+Repositories are used to interact with the database. We will use Spring Data JPA to create repository interfaces for each entity.
+
+```java
+public interface OrderRepository extends JpaRepository<Order, Long> {
+    // Custom query methods if needed
+}
+
+public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
+    List<OrderItem> findByOrderId(Long orderId);
+}
+
+// Similar repositories for Products, Customers, Invoices, and Shipments
+```
+
+### 3. Service Layer Implementation
+
+The service layer contains the business logic. We will create a service class that implements the logic from the PL/SQL procedures.
+
+```java
+@Service
+public class OrderProcessingService {
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private OrderItemRepository orderItemRepository;
+
+    // Other repositories and services
+
+    public Long createOrder(Long customerId) {
+        // Validate customer
+        validateCustomer(customerId);
+
+        Order order = new Order();
+        order.setCustomerId(customerId);
+        order.setOrderDate(new Date());
+        order.setOrderStatus("NEW");
+        order.setOrderTotal(0.0);
+        order.setCreatedDate(new Date());
+        order.setLastUpdatedDate(new Date());
+
+        order = orderRepository.save(order);
+        return order.getOrderId();
+    }
+
+    public void addOrderItem(Long orderId, Long productId, Integer quantity) {
+        // Validate product and quantity
+        validateProduct(productId);
+        validatePositiveNumber(quantity, "Quantity");
+
+        Order order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new RuntimeException("Order does not exist"));
+
+        if (!"NEW".equals(order.getOrderStatus())) {
+            throw new RuntimeException("Cannot add items to Order that is not in NEW status");
+        }
+
+        Double unitPrice = getProductPrice(productId);
+        Double totalPrice = unitPrice * quantity;
+
+        OrderItem orderItem = new OrderItem();
+        orderItem.setOrderId(orderId);
+        orderItem.setProductId(productId);
+        orderItem.setQuantity(quantity);
+        orderItem.setUnitPrice(unitPrice);
+        orderItem.setTotalPrice(totalPrice);
+        orderItem.setCreatedDate(new Date());
+        orderItem.setLastUpdatedDate(new Date());
+
+        orderItemRepository.save(orderItem);
+
+        // Update order total
+        order.setOrderTotal(order.getOrderTotal() + totalPrice);
+        order.setLastUpdatedDate(new Date());
+        orderRepository.save(order);
+    }
+
+    // Other methods for validateOrder, processOrder, shipOrder, completeOrder, cancelOrder
+
+    private void validateCustomer(Long customerId) {
+        // Implement validation logic
+    }
+
+    private void validateProduct(Long productId) {
+        // Implement validation logic
+    }
+
+    private void validatePositiveNumber(Integer number, String fieldName) {
+        if (number <= 0) {
+            throw new RuntimeException(fieldName + " must be positive");
+        }
+    }
+
+    private Double getProductPrice(Long productId) {
+        // Fetch product price from the database
+        return 0.0; // Placeholder
+    }
+}
+```
+
+### 4. Controller Endpoints
+
+Controllers expose the service methods as REST endpoints.
+
+```java
+@RestController
+@RequestMapping("/orders")
+public class OrderController {
+
+    @Autowired
+    private OrderProcessingService orderProcessingService;
+
+    @PostMapping("/create")
+    public ResponseEntity<Long> createOrder(@RequestParam Long customerId) {
+        Long orderId = orderProcessingService.createOrder(customerId);
+        return ResponseEntity.ok(orderId);
+    }
+
+    @PostMapping("/{orderId}/addItem")
+    public ResponseEntity<Void> addOrderItem(@PathVariable Long orderId, @RequestParam Long productId, @RequestParam Integer quantity) {
+        orderProcessingService.addOrderItem(orderId, productId, quantity);
+        return ResponseEntity.ok().build();
+    }
+
+    // Other endpoints for validateOrder, processOrder, shipOrder, completeOrder, cancelOrder
+}
+```
+
+### 5. DTOs
+
+DTOs (Data Transfer Objects) are used to transfer data between the client and server. You can create DTOs for requests and responses if needed.
+
+```java
+public class OrderRequest {
+    private Long customerId;
+    // Other fields
+}
+
+public class OrderItemRequest {
+    private Long productId;
+    private Integer quantity;
+    // Other fields
+}
+```
+
+### Conclusion
+
+This setup provides a basic structure for converting the PL/SQL package into a Spring Boot application. The service layer implements the business logic, while the controller exposes REST endpoints for client interaction. The repository interfaces handle database operations, and entity classes map to the database tables. Additional validation and utility methods should be implemented as needed to match the PL/SQL logic.
+(.venv) chamindawijayasundara@Chamindas-MacBook-Pro legacy_modernisation % 
